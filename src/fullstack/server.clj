@@ -2,7 +2,61 @@
   (:gen-class) ; for -main method in uberjar
   (:require [io.pedestal.http :as server]
             [io.pedestal.http.route :as route]
-            [fullstack.service :as service]))
+            [io.pedestal.http.route.definition.table :refer [table-routes]]
+            [fullstack.service :as service]
+            [clojure.java.io :as io]))
+
+(defn print-routes
+  []
+  (route/print-routes (table-routes service/routes)))
+
+(defn print-route
+  "Prints a route and its interceptors"
+  [rname]
+  (letfn [(joined-by
+            [s coll]
+            (apply str (interpose s coll)))
+
+          (repeat-str
+            [s n]
+            (apply str (repeat n s)))
+
+          (interceptor-info
+            [i]
+            (let [iname  (or (:name i) "<handler>")
+                  stages (joined-by
+                           ","
+                           (keys
+                             (filter
+                               (comp (complement nil?) val)
+                               (dissoc i :name))))]
+              (str iname " (" stages ")")))]
+    (when-let [rte (named-route rname)]
+      (let [{:keys [path method route-name interceptors]} rte
+            name-line (str "[" method " " path " " route-name "]")]
+        (joined-by
+          "\n"
+          (into [name-line (repeat-str "-" (count name-line))]
+                (map interceptor-info interceptors)))))))
+(defn named-route
+  [route-name]
+  (->> service/routes
+       table-routes
+       (filter #(= route-name (:route-name %)))
+       first))
+
+(defn dev-url-for
+  "Returns a url string for the named route"
+  [route-name & opts]
+  (let [f (route/url-for-routes (table-routes service/routes))
+        defaults   {:host "localhost" :scheme :http :port 8080}
+        route-opts (flatten (seq (merge defaults (apply hash-map opts))))]
+    (apply f route-name route-opts)))
+
+(defn recognize-route
+  "Verifies the requested HTTP verb and path are recognized by the router."
+  [verb path]
+  (route/try-routing-for (table-routes service/routes) :prefix-tree path verb))
 
 ;; This is an adapted service map, that can be started and stopped
 ;; From the REPL you can call server/start and server/stop on this service
